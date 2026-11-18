@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+const API = "http://localhost:5000";
 
 /* ================= helpers ================= */
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -615,7 +616,7 @@ function Settings({ name, setName, settings, setSettings, perm, askPerm, onReset
 /* ================= app ================= */
 export default function App() {
   const [name, setName] = useLocal("rouspoo.name", "");
-  const [routines, setRoutines] = useLocal("rouspoo.routines.v2", []);
+  const [routines, setRoutines] = useState([]);
   const [settings, setSettings] = useLocal("rouspoo.settings.v3", {
     theme: "light",
     alarmOn: false,
@@ -629,6 +630,12 @@ export default function App() {
   const [ringing, setRinging] = useState(null);
   const [perm, setPerm] = useState("Notification" in window ? Notification.permission : "denied");
   const fired = useRef(new Set());
+  useEffect(() => {
+  fetch(`${API}/routines`)
+    .then((res) => res.json())
+    .then(setRoutines)
+    .catch(() => alert("Could not reach the backend. Is the server running?"));
+}, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", settings.theme);
@@ -661,17 +668,47 @@ export default function App() {
   const greet =
     hour < 5 ? "Good night" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : hour < 21 ? "Good evening" : "Good night";
 
-  const save = (r) => {
-    setRoutines((rs) => (rs.some((x) => x.id === r.id) ? rs.map((x) => (x.id === r.id ? r : x)) : [...rs, r]));
+  const save = async (r) => {
+  const exists = routines.some((x) => x.id === r.id);
+  try {
+    const res = await fetch(exists ? `${API}/routines/${r.id}` : `${API}/routines`, {
+      method: exists ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(r),
+    });
+    if (!res.ok) throw new Error("save failed");
+    const saved = await res.json();
+    setRoutines((rs) => (exists ? rs.map((x) => (x.id === saved.id ? saved : x)) : [...rs, saved]));
     setForm(null);
-  };
-  const remove = (r) => {
-    if (confirm('Delete "' + r.name + '"?')) setRoutines((rs) => rs.filter((x) => x.id !== r.id));
-  };
-  const toggleAlarm = (r) => setRoutines((rs) => rs.map((x) => (x.id === r.id ? { ...x, alarm: !x.alarm } : x)));
-  const askPerm = async () => {
-    if ("Notification" in window) setPerm(await Notification.requestPermission());
-  };
+  } catch (e) {
+    alert("Could not save. Is the backend server running?");
+  }
+};
+
+const remove = async (r) => {
+  if (!confirm('Delete "' + r.name + '"?')) return;
+  try {
+    await fetch(`${API}/routines/${r.id}`, { method: "DELETE" });
+    setRoutines((rs) => rs.filter((x) => x.id !== r.id));
+  } catch (e) {
+    alert("Could not delete. Is the backend server running?");
+  }
+};
+
+const toggleAlarm = async (r) => {
+  const updated = { ...r, alarm: !r.alarm };
+  try {
+    const res = await fetch(`${API}/routines/${r.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    });
+    if (!res.ok) throw new Error("update failed");
+    setRoutines((rs) => rs.map((x) => (x.id === r.id ? updated : x)));
+  } catch (e) {
+    alert("Could not update. Is the backend server running?");
+  }
+};
   const resetAll = () => {
     if (confirm("Delete your name, routines and settings?")) {
       stopRing();
